@@ -1,6 +1,51 @@
 Changelog
 =========
 
+Changes with Apache Libcloud in development
+-------------------------------------------
+
+Compute
+~~~~~~~
+
+- Improve GCE create_node, make sure ex_get_disktype function
+  (GITHUB-448)
+  [Markos Gogoulos]
+
+- GCE driver fix to handle unknown image projects
+  (GITHUB-447)
+  [Markos Gogoulos]
+
+- Allow user to pass ``ex_blockdevicemappings`` argument to the create_node
+  method in the OpenStack driver.
+  (GITHUB-398, LIBCLOUD-637)
+  [Allard Hoeve]
+
+- Fix ``list_volume_snapshots`` method in the EC2 driver so it comforms to the
+  base API.
+  (LIBCLOUD-664, GITHUB-451)
+  [Allard Hoeve]
+
+- Add ``volumes_attached`` attibute to ``node.extra`` in the OpenStack driver.
+  (LIBCLOUD-668, GITHUB-462)
+  [Allard Hoeve]
+
+- Add the following new methods to the Linode driver: ``ex_list_volumes``,
+  ``ex_create_volume``, ``ex_destroy_volume``.
+  (LIBCLOUD-649, GITHUB-430)
+  [Wojciech Wirkijowski]
+
+- Add ``list_volume_snapshots`` method to the OpenStack driver.
+  (LIBCLOUD-663, GITHUB-450)
+  [Allard Hoeve]
+
+DNS
+~~~
+
+- Fix a bug when a ZoneDoesntExist exception was thrown when listing records
+  for a zone which has no records in the HostVirtual driver.
+  (GITHUB-460)
+  [Vanč Levstik]
+
 Changes with Apache Libcloud 0.17.0
 -----------------------------------
 
@@ -15,14 +60,6 @@ General
 
 Compute
 ~~~~~~~
-
-- Improve GCE create_node, make sure ex_get_disktype function
-  (GITHUB-448)
-  [Markos Gogoulos]
-
-- GCE driver fix to handle unknown image projects
-  (GITHUB-447)
-  [Markos Gogoulos]
 
 - GCE driver updated to include ex_stop_node() and ex_start_node() methods.
   (GITHUB-442)
