@@ -371,6 +371,8 @@ class VCloudNodeDriver(NodeDriver):
     connectionCls = VCloudConnection
     org = None
     _vdcs = None
+    _networks = None
+    _images = None
 
     NODE_STATE_MAP = {'0': NodeState.PENDING,
                       '1': NodeState.PENDING,
@@ -434,10 +436,12 @@ class VCloudNodeDriver(NodeDriver):
 
     @property
     def networks(self):
-        networks = []
+        if self._networks:
+            return self._networks
+        self._networks = []
         for vdc in self.vdcs:
             res = self.connection.request(get_url_path(vdc.id)).object
-            networks.extend(
+            self._networks.extend(
                 [network
                  for network in res.findall(
                      fixxpath(res, 'AvailableNetworks/Network')
@@ -445,7 +449,18 @@ class VCloudNodeDriver(NodeDriver):
                  )]
             )
 
-        return networks
+        return self._networks
+
+    def _get_network(self, net_name):
+        """ 
+        returns network object if found 
+        """
+        if not self._networks:
+            self.networks
+        for net in self._networks:
+            if net.get('name') == net_name:
+                return net
+        return None
 
     def _to_image(self, image):
         image = NodeImage(id=image.get('href'),
@@ -558,7 +573,7 @@ class VCloudNodeDriver(NodeDriver):
     def list_nodes(self):
         return self.ex_list_nodes()
 
-    def ex_list_nodes(self, vdcs=None):
+    def ex_list_nodes(self, with_vms=True, vdcs=None):
         """
         List all nodes across all vDCs. Using 'vdcs' you can specify which vDCs
         should be queried.
@@ -593,7 +608,7 @@ class VCloudNodeDriver(NodeDriver):
                         headers={'Content-Type':
                                  'application/vnd.vmware.vcloud.vApp+xml'}
                     )
-                    nodes.append(self._to_node(res.object))
+                    nodes.append(self._to_node(res.object, with_vms))
                 except Exception:
                     # The vApp was probably removed since the previous vDC
                     # query, ignore
@@ -649,7 +664,17 @@ class VCloudNodeDriver(NodeDriver):
 
         return res
 
+    def get_image(self, name, location=None):
+        try:
+            image = [i for i in self.list_images(location=location) if i.name == name][0]
+        except:
+            return None
+        return image
+
+
     def list_images(self, location=None):
+        if self._images:
+            return self._images
         images = []
         for vdc in self.vdcs:
             res = self.connection.request(get_url_path(vdc.id)).object
@@ -677,7 +702,9 @@ class VCloudNodeDriver(NodeDriver):
         def idfun(image):
             return image.id
 
-        return self._uniquer(images, idfun)
+        # cache images
+        self._images = self._uniquer(images, idfun)
+        return self._images
 
     def _uniquer(self, seq, idfun=None):
         if idfun is None:
@@ -959,6 +986,57 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         return [NodeLocation(id=self.connection.host,
                 name=self.connection.host, country="N/A", driver=self)]
 
+    def find_vm(self, value, attr='name', vapp=None, vdcs=None):
+        """
+        Searches for vm across specified vDCs and/or vApp.
+
+        :param value: By default, the name of the vm to search for.
+                     You could use ip_address, id or anything else
+        :type value: ``str``
+
+        :param attr: Search by this attributed. Default is vm_name
+        :type attr: ``str``
+
+        :param vapp: Restrict the search to just this vApp
+        :type vapp: ``str``
+
+        :param vdcs: None, vDC or a list of vDCs to search in. If None all vDCs
+                     will be searched.
+        :type vdcs: :class:`Vdc`
+
+        :return: vm details
+        :rtype: :class:`dict` or ``None``
+        """
+ 
+        vm_info = {}
+        if vdcs is None:
+            vdcs = self.vdcs
+        if not getattr(vdcs, '__iter__', False):
+            vdcs = [vdcs]
+
+        # def ex_list_nodes(self, with_vms=True, vdcs=None)
+        if vapp is None:
+            vapps = self.ex_list_nodes(with_vms=True, vdcs=vdcs)
+        else:
+            vapps = [self.ex_find_node(vapp, vdcs=vdcs)]
+
+        if not vapps:
+            return None
+
+        for v in vapps:
+            if not v:
+                return None
+            for vm in v.extra['vms']:
+                # FIXME: case insensitive?
+                #if vm[attr].upper() == value.upper():
+                if value in vm[attr]:
+                    hw = self.get_vm_hardware(vm)
+                    vm_info = dict(vm.items() + hw.items())
+                    return vm_info
+
+        return None
+
+
     def ex_find_node(self, node_name, vdcs=None):
         """
         Searches for node across specified vDCs. This is more effective than
@@ -1014,6 +1092,86 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             return True
         else:
             return False
+
+    def vm_power(self, vm, operation=None):
+        validActions = ['shutdown', 'reboot', 'powerOn', 'powerOff', 'suspend']
+        if not operation in validActions:
+            return False
+
+        return self._vm_power_href(vm['id'], operation)
+
+    def _vm_power_href(self, url, operation):
+        res = self.connection.request(
+                        '%s/power/action/%s' % (get_url_path(url), operation),
+                        method='POST')
+
+        if res.status in [httplib.ACCEPTED, httplib.NO_CONTENT]:
+            self._wait_for_task_completion(res.object.get('href'))
+            return True
+        else:
+            return False
+
+    def _get_network_nics_xml(self, vm_id):
+        res = self.connection.request('%s/networkConnectionSection/' % vm_id)
+        if not res:
+            return None
+        output=""
+        nics = res.object.findall('{http://www.vmware.com/vcloud/v1.5}NetworkConnection')
+        for nic in nics:
+            output += ET.tostring(nic)
+
+        return output
+
+    def get_vm_hardware(self, vm):
+        output={}
+        count = 1
+        xpath =  ('{http://schemas.dmtf.org/ovf/envelope/1}'
+                        'VirtualHardwareSection')
+
+        res = self.connection.request(vm['id'])
+        hw = res.object.find(xpath)
+        for item in hw.findall('{http://schemas.dmtf.org/ovf/envelope/1}Item'):
+            descr = item.find('{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}Description')
+            if descr is not None:
+                if 'Hard' in descr.text:
+                    size = item.find('{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}HostResource')
+                    output["%s %d" % (descr.text, count)] = size.get('{http://www.vmware.com/vcloud/v1.5}capacity')
+                    count = count + 1
+                elif 'Memory' in descr.text:
+                    size = item.find('{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity')
+                    output['memory'] = size.text
+                elif 'CPUs' in descr.text:
+                    size = item.find('{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity')
+                    output['cpus'] = size.text
+
+
+        return output
+
+
+    def ex_deploy_vm(self, vm_id, forceCustomization=False):
+        """
+        Deploys existing vm. Equal to vApp "start" operation.
+        :param  node: The node to be deployed
+        :type   node: :class:`Node`
+        :rtype: :class:`Node`
+        """
+        data = {'powerOn': 'true',
+                'forceCustomization': 'true' if forceCustomization is True else 'false',
+                'xmlns': 'http://www.vmware.com/vcloud/v1.5'}
+        deploy_xml = ET.Element('DeployVAppParams', data)
+        path = get_url_path(vm_id)
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.deployVAppParams+xml'
+        }
+        res = self.connection.request('%s/action/deploy' % vm_id,
+                                      data=ET.tostring(deploy_xml),
+                                      method='POST',
+                                      headers=headers)
+        self._wait_for_task_completion(res.object.get('href'))
+        res = self.connection.request(get_url_path(vm_id))
+        return res
+
 
     def ex_deploy_node(self, node):
         """
@@ -1876,6 +2034,58 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             )
             self._wait_for_task_completion(res.object.get('href'))
 
+    def _add_network_nic(self, vm_id, network_name, ipmode='POOL', ipaddress='', connected=True):
+        res = self.connection.request('%s/networkConnectionSection/' % vm_id)
+        if not res:
+            return None
+
+        # Get all existing NICs
+        nics = res.object.findall(fixxpath(res.object, 'NetworkConnection'))
+        link = res.object.find(fixxpath(res.object, 'Link'))
+        primary_link = res.object.find(fixxpath(res.object, 'PrimaryNetworkConnectionIndex'))
+
+        network_xml = ET.Element("NetworkConnectionSection", {
+            'ovf:required': 'false',
+            'xmlns': "http://www.vmware.com/vcloud/v1.5",
+            'xmlns:ovf': 'http://schemas.dmtf.org/ovf/envelope/1'})
+        ET.SubElement(network_xml, "ovf:Info").text = \
+            'Specifies the available VM network connections'
+        if primary_link is None:
+            ET.SubElement(network_xml,"PrimaryNetworkConnectionIndex").text="0"
+        else:
+            network_xml.append(primary_link)
+
+        for n in nics:
+            network_xml.append(n)
+
+        # OK, got them all. Now add new one
+        new_nic = ET.Element("NetworkConnection", {
+            'network': network_name,
+            'needsCustomization': 'false'})
+        ET.SubElement(new_nic, 'NetworkConnectionIndex').text = str(len(nics))
+        if ipmode == 'MANUAL':
+            ET.SubElement(new_nic, 'IpAddress').text = ipaddress
+        ET.SubElement(new_nic, 'IsConnected').text = 'true' if connected else 'false'
+        ET.SubElement(new_nic, 'IpAddressAllocationMode').text = ipmode
+
+        network_xml.append(new_nic)
+
+        # Last part, closing XML section
+        network_xml.append(link)
+
+        headers = { 'Content-Type':
+            'application/vnd.vmware.vcloud.networkConnectionSection+xml'
+        }
+
+        res = self.connection.request(
+            '%s/networkConnectionSection/' % vm_id,
+            data=ET.tostring(network_xml),
+            method='PUT',
+            headers=headers
+        )
+        self._wait_for_task_completion(res.object.get('href'))
+        return network_xml
+
     def _change_vm_script(self, vapp_or_vm_id, vm_script):
         if vm_script is None:
             return
@@ -1989,8 +2199,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     def _is_node(self, node_or_image):
         return isinstance(node_or_image, Node)
 
-    def _to_node(self, node_elm):
-        # Parse VMs as extra field
+    def _get_vms(self, node_elm):
         vms = []
         for vm_elem in node_elm.findall(fixxpath(node_elm, 'Children/Vm')):
             public_ips = []
@@ -2027,12 +2236,19 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
             }
             vms.append(vm)
 
+        return vms
+
+    def _to_node(self, node_elm, with_vms=True):
+        # Parse VMs as extra field
         # Take the node IP addresses from all VMs
         public_ips = []
         private_ips = []
-        for vm in vms:
-            public_ips.extend(vm['public_ips'])
-            private_ips.extend(vm['private_ips'])
+        vms = []
+        if with_vms:
+            vms = self._get_vms(node_elm)
+            for vm in vms:
+                public_ips.extend(vm['public_ips'])
+                private_ips.extend(vm['private_ips'])
 
         # Find vDC
         vdc_id = next(link.get('href') for link
