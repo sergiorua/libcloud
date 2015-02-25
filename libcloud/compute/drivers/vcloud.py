@@ -537,6 +537,16 @@ class VCloudNodeDriver(NodeDriver):
             res = self.connection.request(get_url_path(task_href))
             status = res.object.get('status')
 
+        # I'm not too sure all tasks return the same attrs so I'm being
+        # careful here
+        ret = { 'status': status }
+        for entry in ('startTime', 'operation', 'endTime', 'id', 'href'):
+            try:
+                ret[entry] = res.object.get(entry)
+            except:
+                pass
+        return ret
+
     def destroy_node(self, node):
         node_path = get_url_path(node.id)
         # blindly poweroff node, it will throw an exception if already off
@@ -985,6 +995,17 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     def list_locations(self):
         return [NodeLocation(id=self.connection.host,
                 name=self.connection.host, country="N/A", driver=self)]
+
+    def _get_vm_id(self, vm_name_or_id):
+        if vm_name_or_id.startswith('http'): # assume it's an id
+            vm_id = vm_name_or_id
+        else:
+            vm = self.find_vm(vm_name_or_id)
+            if 'id' in vm:
+                vm_id = vm['id']
+            else:
+                return None
+        return vm_id
 
     def find_vm(self, value, attr='name', vapp=None, vdcs=None):
         """
@@ -2267,7 +2288,6 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         return node
 
     def _to_vdc(self, vdc_elm):
-
         def get_capacity_values(capacity_elm):
             if capacity_elm is None:
                 return None
@@ -2291,6 +2311,66 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                    cpu=cpu,
                    memory=memory,
                    storage=storage)
+
+    # FIXME: it always returns an empty list???
+    def list_snapshots(self, vm_name_or_id):
+        vm_id = self._get_vm_id(vm_name_or_id)
+
+        res = self.connection.request('%s/snapshotSection' % vm_id)
+        return self._wait_for_task_completion(res.object.get('href'))
+
+    def revert_snapshot(self, vm_name_or_id):
+        vm_id = self._get_vm_id(vm_name_or_id)
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.createSnapshotParams+xml'
+        }
+
+        res = self.connection.request(
+            '%s/action/revertToCurrentSnapshot' % vm_id,
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
+
+    def delete_snapshot(self, vm_name_or_id):
+        vm_id = self._get_vm_id(vm_name_or_id)
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.createSnapshotParams+xml'
+        }
+
+        res = self.connection.request(
+            '%s/action/removeAllSnapshots' % vm_id,
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
+
+
+    def create_snapshot(self, vm_name_or_id, description=None):
+        vm_id = self._get_vm_id(vm_name_or_id)
+
+        if description is None:
+            description = "Snap created on ..."
+
+        newSnap = ET.Element("CreateSnapshotParams", {
+            'xmlns': "http://www.vmware.com/vcloud/v1.5",
+            'name': 'snap1'})
+        ET.SubElement(newSnap, "Description").text = description
+
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.createSnapshotParams+xml'
+        }
+
+        res = self.connection.request(
+            '%s/action/createSnapshot' % vm_id,
+            data=ET.tostring(newSnap),
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
 
 
 class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
