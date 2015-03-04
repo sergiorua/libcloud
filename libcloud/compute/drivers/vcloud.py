@@ -514,10 +514,17 @@ class VCloudNodeDriver(NodeDriver):
         return catalogs
 
     def _wait_for_task_completion(self, task_href,
-                                  timeout=DEFAULT_TASK_COMPLETION_TIMEOUT):
+                                  timeout=DEFAULT_TASK_COMPLETION_TIMEOUT,
+                                  verbose=False):
+        if 'LIBCLOUD_VERBOSE' in os.environ:
+            verbose=True
         start_time = time.time()
         res = self.connection.request(get_url_path(task_href))
         status = res.object.get('status')
+        if verbose:
+            sys.stdout.write("%s " % (res.object.get('operation')))
+            sys.stdout.flush()
+
         while status != 'success':
             if status == 'error':
                 # Get error reason from the response body
@@ -533,9 +540,25 @@ class VCloudNodeDriver(NodeDriver):
             if (time.time() - start_time >= timeout):
                 raise Exception("Timeout (%s sec) while waiting for task %s."
                                 % (timeout, task_href))
+            if verbose:
+                sys.stdout.write(".")
+                sys.stdout.flush()
             time.sleep(5)
             res = self.connection.request(get_url_path(task_href))
             status = res.object.get('status')
+
+        if verbose: 
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        # I'm not too sure all tasks return the same attrs so I'm being
+        # careful here
+        ret = { 'status': status }
+        for entry in ('startTime', 'operation', 'endTime', 'id', 'href'):
+            try:
+                ret[entry] = res.object.get(entry)
+            except:
+                pass
+        return ret
 
     def destroy_node(self, node):
         node_path = get_url_path(node.id)
@@ -850,7 +873,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             'Authorization': "Basic %s" % base64.b64encode(
                 b('%s:%s' % (self.user_id, self.key))).decode('utf-8'),
             'Content-Length': '0',
-            'Accept': 'application/*+xml;version=1.5'
+            'Accept': 'application/*+xml;version=5.1'
         }
 
     def _get_auth_token(self):
@@ -888,7 +911,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
     def add_default_headers(self, headers):
-        headers['Accept'] = 'application/*+xml;version=1.5'
+        headers['Accept'] = 'application/*+xml;version=5.1'
         headers['x-vcloud-authorization'] = self.token
         return headers
 
@@ -985,6 +1008,17 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
     def list_locations(self):
         return [NodeLocation(id=self.connection.host,
                 name=self.connection.host, country="N/A", driver=self)]
+
+    def _get_vm_id(self, vm_name_or_id):
+        if vm_name_or_id.startswith('http'): # assume it's an id
+            vm_id = vm_name_or_id
+        else:
+            vm = self.find_vm(vm_name_or_id)
+            if 'id' in vm:
+                vm_id = vm['id']
+            else:
+                return None
+        return vm_id
 
     def find_vm(self, value, attr='name', vapp=None, vdcs=None):
         """
@@ -1562,6 +1596,10 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                       Overrides the default task completion
                                       value.
         :type       ex_clone_timeout: ``int``
+
+        :keyword    verbose: boolean
+
+        :type       verbose: boolean
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -1577,6 +1615,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vdc = kwargs.get('ex_vdc', None)
         ex_clone_timeout = kwargs.get('ex_clone_timeout',
                                       DEFAULT_TASK_COMPLETION_TIMEOUT)
+        verbose = kwargs.get('verbose', False)
 
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
@@ -1605,7 +1644,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                                           network_elem,
                                                           vdc, ex_vm_network,
                                                           ex_vm_fence,
-                                                          ex_clone_timeout)
+                                                          ex_clone_timeout, 
+                                                          verbose = verbose)
 
         self._change_vm_names(vapp_href, ex_vm_names)
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
@@ -1623,7 +1663,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                     res = self.connection.request(
                         '%s/power/action/powerOn' % get_url_path(vapp_href),
                         method='POST')
-                    self._wait_for_task_completion(res.object.get('href'))
+                    self._wait_for_task_completion(res.object.get('href'), verbose=verbose)
                     break
                 except Exception:
                     if retry <= 0:
@@ -1636,7 +1676,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         return node
 
     def _instantiate_node(self, name, image, network_elem, vdc, vm_network,
-                          vm_fence, instantiate_timeout):
+                          vm_fence, instantiate_timeout, verbose=False):
         instantiate_xml = Instantiate_1_5_VAppXML(
             name=name,
             template=image.id,
@@ -1661,7 +1701,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         task_href = res.object.find(fixxpath(res.object, "Tasks/Task")).get(
             'href')
-        self._wait_for_task_completion(task_href, instantiate_timeout)
+        self._wait_for_task_completion(task_href, instantiate_timeout, verbose=verbose)
         return vapp_name, vapp_href
 
     def _clone_node(self, name, sourceNode, vdc, clone_timeout):
@@ -2267,7 +2307,6 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         return node
 
     def _to_vdc(self, vdc_elm):
-
         def get_capacity_values(capacity_elm):
             if capacity_elm is None:
                 return None
@@ -2291,6 +2330,66 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                    cpu=cpu,
                    memory=memory,
                    storage=storage)
+
+    # FIXME: it always returns an empty list???
+    def list_snapshots(self, vm_name_or_id):
+        vm_id = self._get_vm_id(vm_name_or_id)
+
+        res = self.connection.request('%s/snapshotSection' % vm_id)
+        return self._wait_for_task_completion(res.object.get('href'))
+
+    def revert_snapshot(self, vm_name_or_id):
+        vm_id = self._get_vm_id(vm_name_or_id)
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.createSnapshotParams+xml'
+        }
+
+        res = self.connection.request(
+            '%s/action/revertToCurrentSnapshot' % vm_id,
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
+
+    def delete_snapshot(self, vm_name_or_id):
+        vm_id = self._get_vm_id(vm_name_or_id)
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.createSnapshotParams+xml'
+        }
+
+        res = self.connection.request(
+            '%s/action/removeAllSnapshots' % vm_id,
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
+
+
+    def create_snapshot(self, vm_name_or_id, description=None):
+        vm_id = self._get_vm_id(vm_name_or_id)
+
+        if description is None:
+            description = "Snap created on ..."
+
+        newSnap = ET.Element("CreateSnapshotParams", {
+            'xmlns': "http://www.vmware.com/vcloud/v1.5",
+            'name': 'snap1'})
+        ET.SubElement(newSnap, "Description").text = description
+
+        headers = {
+            'Content-Type':
+            'application/vnd.vmware.vcloud.createSnapshotParams+xml'
+        }
+
+        res = self.connection.request(
+            '%s/action/createSnapshot' % vm_id,
+            data=ET.tostring(newSnap),
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
 
 
 class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
