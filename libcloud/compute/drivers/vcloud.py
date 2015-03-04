@@ -908,7 +908,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
             conn.request(method='GET', url=org_list_url,
-                         headers=self.add_default_headers({'version':vers}))
+                         headers=self.add_default_headers({},version=vers))
             body = ET.XML(conn.getresponse().read())
             self.driver.org = get_url_path(
                 next((org for org in body.findall(fixxpath(body, 'Org'))
