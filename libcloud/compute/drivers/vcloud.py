@@ -514,10 +514,17 @@ class VCloudNodeDriver(NodeDriver):
         return catalogs
 
     def _wait_for_task_completion(self, task_href,
-                                  timeout=DEFAULT_TASK_COMPLETION_TIMEOUT):
+                                  timeout=DEFAULT_TASK_COMPLETION_TIMEOUT,
+                                  verbose=False):
+        if 'LIBCLOUD_VERBOSE' in os.environ:
+            verbose=True
         start_time = time.time()
         res = self.connection.request(get_url_path(task_href))
         status = res.object.get('status')
+        if verbose:
+            sys.stdout.write("%s " % (res.object.get('operation')))
+            sys.stdout.flush()
+
         while status != 'success':
             if status == 'error':
                 # Get error reason from the response body
@@ -533,10 +540,16 @@ class VCloudNodeDriver(NodeDriver):
             if (time.time() - start_time >= timeout):
                 raise Exception("Timeout (%s sec) while waiting for task %s."
                                 % (timeout, task_href))
+            if verbose:
+                sys.stdout.write(".")
+                sys.stdout.flush()
             time.sleep(5)
             res = self.connection.request(get_url_path(task_href))
             status = res.object.get('status')
 
+        if verbose: 
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         # I'm not too sure all tasks return the same attrs so I'm being
         # careful here
         ret = { 'status': status }
@@ -860,7 +873,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             'Authorization': "Basic %s" % base64.b64encode(
                 b('%s:%s' % (self.user_id, self.key))).decode('utf-8'),
             'Content-Length': '0',
-            'Accept': 'application/*+xml;version=1.5'
+            'Accept': 'application/*+xml;version=5.1'
         }
 
     def _get_auth_token(self):
@@ -898,7 +911,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
     def add_default_headers(self, headers):
-        headers['Accept'] = 'application/*+xml;version=1.5'
+        headers['Accept'] = 'application/*+xml;version=5.1'
         headers['x-vcloud-authorization'] = self.token
         return headers
 
@@ -1583,6 +1596,10 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                       Overrides the default task completion
                                       value.
         :type       ex_clone_timeout: ``int``
+
+        :keyword    verbose: boolean
+
+        :type       verbose: boolean
         """
         name = kwargs['name']
         image = kwargs['image']
@@ -1598,6 +1615,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         ex_vdc = kwargs.get('ex_vdc', None)
         ex_clone_timeout = kwargs.get('ex_clone_timeout',
                                       DEFAULT_TASK_COMPLETION_TIMEOUT)
+        verbose = kwargs.get('verbose', False)
 
         self._validate_vm_names(ex_vm_names)
         self._validate_vm_cpu(ex_vm_cpu)
@@ -1626,7 +1644,8 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                                                           network_elem,
                                                           vdc, ex_vm_network,
                                                           ex_vm_fence,
-                                                          ex_clone_timeout)
+                                                          ex_clone_timeout, 
+                                                          verbose = verbose)
 
         self._change_vm_names(vapp_href, ex_vm_names)
         self._change_vm_cpu(vapp_href, ex_vm_cpu)
@@ -1644,7 +1663,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                     res = self.connection.request(
                         '%s/power/action/powerOn' % get_url_path(vapp_href),
                         method='POST')
-                    self._wait_for_task_completion(res.object.get('href'))
+                    self._wait_for_task_completion(res.object.get('href'), verbose=verbose)
                     break
                 except Exception:
                     if retry <= 0:
@@ -1657,7 +1676,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
         return node
 
     def _instantiate_node(self, name, image, network_elem, vdc, vm_network,
-                          vm_fence, instantiate_timeout):
+                          vm_fence, instantiate_timeout, verbose=False):
         instantiate_xml = Instantiate_1_5_VAppXML(
             name=name,
             template=image.id,
@@ -1682,7 +1701,7 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
         task_href = res.object.find(fixxpath(res.object, "Tasks/Task")).get(
             'href')
-        self._wait_for_task_completion(task_href, instantiate_timeout)
+        self._wait_for_task_completion(task_href, instantiate_timeout, verbose=verbose)
         return vapp_name, vapp_href
 
     def _clone_node(self, name, sourceNode, vdc, clone_timeout):
