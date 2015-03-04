@@ -886,6 +886,8 @@ class VCloud_1_5_Connection(VCloudConnection):
 
             resp = conn.getresponse()
             headers = dict(resp.getheaders())
+            # FIXME
+            vers = headers['content-type'][-3:]
 
             # Set authorization token
             try:
@@ -903,15 +905,15 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
             conn.request(method='GET', url=org_list_url,
-                         headers=self.add_default_headers({}))
+                         headers=self.add_default_headers({'version':vers}))
             body = ET.XML(conn.getresponse().read())
             self.driver.org = get_url_path(
                 next((org for org in body.findall(fixxpath(body, 'Org'))
                      if org.get('name') == self.org_name)).get('href')
             )
 
-    def add_default_headers(self, headers):
-        headers['Accept'] = 'application/*+xml;version=1.5'
+    def add_default_headers(self, headers, version='1.5'):
+        headers['Accept'] = 'application/*+xml;version=5.1'
         headers['x-vcloud-authorization'] = self.token
         return headers
 
@@ -2395,11 +2397,6 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
 
 class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
-
-    def add_default_headers(self, headers):
-        headers['Accept'] = 'application/*+xml;version=5.1'
-        headers['x-vcloud-authorization'] = self.token
-        return headers
 
     @staticmethod
     def _validate_vm_memory(vm_memory):
