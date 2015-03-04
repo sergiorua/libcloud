@@ -887,7 +887,10 @@ class VCloud_1_5_Connection(VCloudConnection):
             resp = conn.getresponse()
             headers = dict(resp.getheaders())
             # FIXME
-            vers = headers['content-type'][-3:]
+            try:
+                vers = headers['content-type'][-3:]
+            except:
+                vers = '1.5'
 
             # Set authorization token
             try:
@@ -913,7 +916,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
     def add_default_headers(self, headers, version='1.5'):
-        headers['Accept'] = 'application/*+xml;version=5.1'
+        headers['Accept'] = 'application/*+xml;version=%s' % version
         headers['x-vcloud-authorization'] = self.token
         return headers
 
