@@ -911,7 +911,7 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
     def add_default_headers(self, headers):
-        headers['Accept'] = 'application/*+xml;version=5.1'
+        headers['Accept'] = 'application/*+xml;version=1.5'
         headers['x-vcloud-authorization'] = self.token
         return headers
 
@@ -2396,6 +2396,11 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
 
 class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
 
+    def add_default_headers(self, headers):
+        headers['Accept'] = 'application/*+xml;version=5.1'
+        headers['x-vcloud-authorization'] = self.token
+        return headers
+
     @staticmethod
     def _validate_vm_memory(vm_memory):
         if vm_memory is None:
@@ -2405,3 +2410,131 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
             # MB
             raise ValueError(
                 '%s is not a valid vApp VM memory value' % (vm_memory))
+
+    def _get_edge_gateway(self, vdc_id):
+        res = self.connection.request(vdc_id)
+        for entry in res.object.findall(fixxpath(res.object, 'Link')):
+            if entry.get('rel') == 'edgeGateways':
+                return entry.get('href')
+
+        return None
+
+    def get_edge_gateway_firewall_rules(self, vdc_name_or_id):
+        vdc_id = None
+        if vdc_name_or_id.startswith('http'):
+            vdc_id = vdc_name_or_id
+        else:
+            for v in self.vdcs:
+                if vdc.name == vdc_name_or_id:
+                    vdc_id = vdc.id
+
+        if vdc_id is None:
+            return None
+
+        res = self.connection.request(self._get_edge_gateway(vdc_id))
+
+        item = res.object.find(fixxpath(res.object,'EdgeGatewayRecord'))
+
+        res = self.connection.request(item.get('href'))
+
+        edge = res.object.find(fixxpath(res.object,'Configuration')).find(fixxpath(res.object,'EdgeGatewayServiceConfiguration'))
+        fw_rules = edge.find(fixxpath(res.object,'FirewallService')).findall(fixxpath(res.object,'FirewallRule'))
+
+        fw_fields = ['Id',
+                     'IsEnabled',
+                     'MatchOnTranslate',
+                     'Description',
+                     'Policy',
+                     'Protocols',
+                     'Port',
+                     'DestinationPortRange',
+                     'DestinationIp',
+                     'SourcePort',
+                     'SourcePortRange',
+                     'SourceIp',
+                     'EnableLogging']
+
+
+        edgeFirewallRules=[]
+        for fw_rule in fw_rules:
+            entry = {}
+            for key in fw_fields:
+                if key == 'Protocols':
+                    prots=[]
+                    protocols = fw_rule.find(fixxpath(fw_rule, key))
+
+                    for p in protocols.getiterator():
+                        if not p.tag.endswith('Protocols'):
+                            prots.append(p.tag.replace('{http://www.vmware.com/vcloud/v1.5}', ''))
+                    entry[key] = prots
+                else:
+                    entry[key] = fw_rule.find(fixxpath(fw_rule, key)).text
+
+            edgeFirewallRules.append(entry)
+
+        return edgeFirewallRules
+
+    def _get_edge_gateway_config_service(self, vdc_id):
+        res = self.connection.request(vdc_id)
+
+        items = res.object.findall(fixxpath(res.object, 'Link'))
+        for item in items:
+            if item.get('rel') == 'edgeGateway:configureServices':
+                return item.get('href')
+
+        return None
+
+    def upload_edge_gateway_firewall_rules(self, vdc_name_or_id, data):
+        vdc_id = None
+        if vdc_name_or_id.startswith('http'):
+            vdc_id = vdc_name_or_id
+        else:
+            for v in self.vdcs:
+                if vdc.name == vdc_name_or_id:
+                    vdc_id = vdc.id
+
+        if vdc_id is None:
+            return None
+
+        config_service = self._get_edge_gateway_config_service(vdc_id)
+
+        newFw = ET.Element("EdgeGatewayServiceConfiguration", {
+            'xmlns': "http://www.vmware.com/vcloud/v1.5",
+            })
+        fs = ET.SubElement(newFw, "FirewallService")
+
+        ET.SubElement(fs, "IsEnabled").text = 'true'
+        ET.SubElement(fs, "DefaultAction").text = 'drop'
+        ET.SubElement(fs, "LogDefaultAction").text = 'true'
+
+        for fw_rule in data:
+            fr = ET.SubElement(fs, "FirewallRule")
+            for k in fw_fields:
+                # FIXME: this is cutom hack as I store protocols into a yaml file
+                #        using the format "Protocols: Tcp+Udp"
+                if k == 'Protocols' and not list() is fw_rule[k]:
+                    protocols = ET.SubElement(fr, k)
+                    for p in fw_rule[k]:
+                        for prot in p.split("+"):
+                            ET.SubElement(protocols, prot).text = 'true'
+                else:
+                    if k == 'SourcePortRange' and not 'SourcePortRange' in fw_rule.keys():
+                        ET.SubElement(fr, 'SourcePortRange').text = 'Any'
+                    elif k == 'MatchOnTranslate' and not 'MatchOnTranslate' in fw_rule.keys():
+                        ET.SubElement(fr, 'MatchOnTranslate').text = 'false'
+                    else:
+                        ET.SubElement(fr, k).text = fw_rule[k]
+
+        headers = {
+            'Content-Type':
+            confService.get('type')
+        }
+
+        res = self.connection.request(
+            config_service,
+            data=ET.tostring(newFw),
+            method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
+
