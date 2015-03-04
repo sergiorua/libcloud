@@ -1177,7 +1177,9 @@ class VCloud_1_5_NodeDriver(VCloudNodeDriver):
                 elif 'CPUs' in descr.text:
                     size = item.find('{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}VirtualQuantity')
                     output['cpus'] = size.text
-
+                elif 'ethernet' in descr.text:
+                    mac = item.find('{http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData}Address')
+                    output['mac'] = mac.text
 
         return output
 
