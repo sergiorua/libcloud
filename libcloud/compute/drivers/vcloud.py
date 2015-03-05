@@ -886,11 +886,6 @@ class VCloud_1_5_Connection(VCloudConnection):
 
             resp = conn.getresponse()
             headers = dict(resp.getheaders())
-            # FIXME
-            try:
-                vers = headers['content-type'][-3:]
-            except:
-                vers = '1.5'
 
             # Set authorization token
             try:
@@ -908,15 +903,15 @@ class VCloud_1_5_Connection(VCloudConnection):
             )
 
             conn.request(method='GET', url=org_list_url,
-                         headers=self.add_default_headers({},version=vers))
+                         headers=self.add_default_headers({}))
             body = ET.XML(conn.getresponse().read())
             self.driver.org = get_url_path(
                 next((org for org in body.findall(fixxpath(body, 'Org'))
                      if org.get('name') == self.org_name)).get('href')
             )
 
-    def add_default_headers(self, headers, version='1.5'):
-        headers['Accept'] = 'application/*+xml;version=%s' % version
+    def add_default_headers(self, headers):
+        headers['Accept'] = 'application/*+xml;version=5.1'
         headers['x-vcloud-authorization'] = self.token
         return headers
 
@@ -2424,7 +2419,7 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
         if vdc_name_or_id.startswith('http'):
             vdc_id = vdc_name_or_id
         else:
-            for v in self.vdcs:
+            for vdc in self.vdcs:
                 if vdc.name == vdc_name_or_id:
                     vdc_id = vdc.id
 
@@ -2475,7 +2470,10 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
         return edgeFirewallRules
 
     def _get_edge_gateway_config_service(self, vdc_id):
-        res = self.connection.request(vdc_id)
+        res = self.connection.request(self._get_edge_gateway(vdc_id))
+
+        item = res.object.find(fixxpath(res.object,'EdgeGatewayRecord'))
+        res = self.connection.request(item.get('href'))
 
         items = res.object.findall(fixxpath(res.object, 'Link'))
         for item in items:
@@ -2489,12 +2487,26 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
         if vdc_name_or_id.startswith('http'):
             vdc_id = vdc_name_or_id
         else:
-            for v in self.vdcs:
+            for vdc in self.vdcs:
                 if vdc.name == vdc_name_or_id:
                     vdc_id = vdc.id
 
         if vdc_id is None:
             return None
+
+        fw_fields = ['Id',
+             'IsEnabled',
+             'MatchOnTranslate',
+             'Description',
+             'Policy',
+             'Protocols',
+             'Port',
+             'DestinationPortRange',
+             'DestinationIp',
+             'SourcePort',
+             'SourcePortRange',
+             'SourceIp',
+             'EnableLogging']
 
         config_service = self._get_edge_gateway_config_service(vdc_id)
 
@@ -2527,7 +2539,7 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
 
         headers = {
             'Content-Type':
-            confService.get('type')
+            'application/vnd.vmware.admin.edgeGatewayServiceConfiguration+xml'
         }
 
         res = self.connection.request(
