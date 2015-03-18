@@ -2550,3 +2550,57 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
         )
         return self._wait_for_task_completion(res.object.get('href'))
 
+
+    def get_vapp_firewall_rules(self, vapp_name_or_id, vdcs=None):
+        if vapp_name_or_id.startswith('http'):
+            vapp_id = vapp_name_or_id
+        else:
+            vapp = self.ex_find_node(vapp_name_or_id, vdcs=vdcs)
+            if not vapp:
+                return None
+            vapp_id = vapp.id
+
+        try:
+            res = self.connection.request(vapp_id)
+            network_config = res.object.find(
+                fixxpath(res.object, 'NetworkConfigSection')).find(
+                fixxpath(res.object,'NetworkConfig'))
+            fw_section = network_config.find(
+                fixxpath(network_config, 'Configuration')).find(
+                fixxpath(res.object,'Features')).find(
+                fixxpath(res.object,'FirewallService'))
+        except:
+            return None
+
+        fw_rules = fw_section.findall(fixxpath(fw_section,'FirewallRule'))
+
+        fw_fields = ['IsEnabled',
+                     'Description',
+                     'Policy',
+                     'Protocols',
+                     'Port',
+                     'DestinationIp',
+                     'SourcePort',
+                     'SourceIp',
+                     'EnableLogging']
+
+
+        firewallRules=[]
+        for fw_rule in fw_rules:
+            entry = {}
+            for key in fw_fields:
+                if key == 'Protocols':
+                    prots=[]
+                    protocols = fw_rule.find(fixxpath(fw_rule, key))
+
+                    for p in protocols.getiterator():
+                        if not p.tag.endswith('Protocols'):
+                            prots.append(p.tag.replace('{http://www.vmware.com/vcloud/v1.5}', ''))
+                    entry[key] = prots
+                else:
+                    entry[key] = fw_rule.find(fixxpath(fw_rule, key)).text
+
+            firewallRules.append(entry)
+
+        return firewallRules
+
