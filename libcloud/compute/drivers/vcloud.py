@@ -2522,7 +2522,7 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
         for fw_rule in data:
             fr = ET.SubElement(fs, "FirewallRule")
             for k in fw_fields:
-                # FIXME: this is cutom hack as I store protocols into a yaml file
+                # FIXME: this is custom hack as I store protocols into a yaml file
                 #        using the format "Protocols: Tcp+Udp"
                 if k == 'Protocols' and not list() is fw_rule[k]:
                     protocols = ET.SubElement(fr, k)
@@ -2546,6 +2546,125 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
             config_service,
             data=ET.tostring(newFw),
             method='POST',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
+
+
+    def get_vapp_firewall_rules(self, vapp_name_or_id, vdcs=None):
+        if vapp_name_or_id.startswith('http'):
+            vapp_id = vapp_name_or_id
+        else:
+            vapp = self.ex_find_node(vapp_name_or_id, vdcs=vdcs)
+            if not vapp:
+                return None
+            vapp_id = vapp.id
+
+        try:
+            res = self.connection.request(vapp_id)
+            network_config = res.object.find(
+                fixxpath(res.object, 'NetworkConfigSection')).find(
+                fixxpath(res.object,'NetworkConfig'))
+            fw_section = network_config.find(
+                fixxpath(network_config, 'Configuration')).find(
+                fixxpath(res.object,'Features')).find(
+                fixxpath(res.object,'FirewallService'))
+        except:
+            return None
+
+        fw_rules = fw_section.findall(fixxpath(fw_section,'FirewallRule'))
+
+        fw_fields = ['IsEnabled',
+                     'MatchOnTranslate',
+                     'Description',
+                     'Policy',
+                     'Protocols',
+                     'Port',
+                     'DestinationPortRange',
+                     'DestinationIp',
+                     'SourcePort',
+                     'SourcePortRange',
+                     'SourceIp',
+                     'EnableLogging']
+
+        firewallRules=[]
+        for fw_rule in fw_rules:
+            entry = {}
+            for key in fw_fields:
+                if key == 'Protocols':
+                    prots=[]
+                    protocols = fw_rule.find(fixxpath(fw_rule, key))
+
+                    for p in protocols.getiterator():
+                        if not p.tag.endswith('Protocols'):
+                            prots.append(p.tag.replace('{http://www.vmware.com/vcloud/v1.5}', ''))
+                    entry[key] = prots
+                else:
+                    entry[key] = fw_rule.find(fixxpath(fw_rule, key)).text
+
+            firewallRules.append(entry)
+
+        return firewallRules
+
+
+    def upload_vapp_firewall(self, vapp_name_or_id, rules, vdcs=None, isEnabled='true', DefaultAction='drop', LogDefaultAction='true'):
+        if vapp_name_or_id.startswith('http'):
+            vapp_id = vapp_name_or_id
+        else:
+            vapp = self.ex_find_node(vapp_name_or_id, vdcs=vdcs)
+            if not vapp:
+                return None
+            vapp_id = vapp.id
+
+        fw_fields = ['IsEnabled',
+                     'MatchOnTranslate',
+                     'Description',
+                     'Policy',
+                     'Protocols',
+                     'Port',
+                     'DestinationPortRange',
+                     'DestinationIp',
+                     'SourcePort',
+                     'SourcePortRange',
+                     'SourceIp',
+                     'EnableLogging']
+
+
+        try:
+            network_config_section = self.connection.request("%s/networkConfigSection/" % vapp_id).object
+        except:
+            return None
+
+        # replace FirewallService with new rules
+        # NetworkConfigSection -> NetworkConfig -> Configuration -> Features -> FirewallService
+        for item in network_config_section.iter():
+            if 'FirewallService' in item.tag:
+                item.clear()
+                # FIXME: assuming these defaults
+                fr = ET.SubElement(item, "ns0:IsEnabled").text = isEnabled
+                fr = ET.SubElement(item, "ns0:DefaultAction").text = DefaultAction
+                fr = ET.SubElement(item, "ns0:LogDefaultAction").text = LogDefaultAction
+
+                for fw_rule in rules:
+                    fr = ET.SubElement(item, "ns0:FirewallRule")
+                    for k in fw_fields:
+                        if k == 'Protocols' and not list() is fw_rule[k]:
+                            protocols = ET.SubElement(fr, 'ns0:%s' % k)
+                            for p in fw_rule[k]:
+                                for prot in p.split("+"):
+                                    ET.SubElement(protocols, 'ns0:%s' % prot).text = 'true'
+                        else:
+                            ET.SubElement(fr, 'ns0:%s' % k).text = fw_rule[k]
+
+        headers = {
+            'Content-type': 'application/vnd.vmware.vcloud.networkConfigSection+xml'
+        }
+
+        print ET.tostring(network_config_section, pretty_print = True)
+        res = self.connection.request(
+            "%s/networkConfigSection/" % vapp_id,
+            data=ET.tostring(network_config_section),
+            method='PUT',
             headers=headers
         )
         return self._wait_for_task_completion(res.object.get('href'))
