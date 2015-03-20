@@ -19,6 +19,7 @@ import os
 import sys
 import unittest
 import datetime
+from libcloud.utils.iso8601 import UTC
 
 try:
     import simplejson as json
@@ -802,6 +803,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
                 "serverId": "12065",
                 "volumeId": "cd76a3a1-c4ce-40f6-9b9f-07a61508938d",
             }],
+            'snapshot_id': None,
             'state': 'available',
             'location': 'nova',
             'volume_type': 'None',
@@ -816,6 +818,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(volume.extra, {
             'description': 'some description',
             'attachments': [],
+            'snapshot_id': '01f48111-7866-4cd2-986a-e92683c4a363',
             'state': 'available',
             'location': 'nova',
             'volume_type': 'None',
@@ -1396,7 +1399,12 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
         snapshots = self.driver.ex_list_snapshots()
         self.assertEqual(len(snapshots), 3)
+        self.assertEqual(snapshots[0].created, datetime.datetime(2012, 2, 29, 3, 50, 7, tzinfo=UTC))
+        self.assertEqual(snapshots[0].extra['created'], "2012-02-29T03:50:07Z")
         self.assertEqual(snapshots[0].extra['name'], 'snap-001')
+
+        # invalid date is parsed as None
+        assert snapshots[2].created is None
 
     def test_list_volume_snapshots(self):
         volume = self.driver.list_volumes()[0]

@@ -15,6 +15,7 @@
 """
 OpenStack driver
 """
+from libcloud.utils.iso8601 import parse_date
 
 try:
     import simplejson as json
@@ -149,23 +150,44 @@ class OpenStackNodeDriver(NodeDriver, OpenStackDriverMixin):
             self.connection.request('/servers/detail', params=params).object)
 
     def create_volume(self, size, name, location=None, snapshot=None):
+        """
+        Create a new volume.
+
+        :param size: Size of volume in gigabytes (required)
+        :type size: ``int``
+
+        :param name: Name of the volume to be created
+        :type name: ``str``
+
+        :param location: Which data center to create a volume in. If
+                               empty, undefined behavior will be selected.
+                               (optional)
+        :type location: :class:`.NodeLocation`
+
+        :param snapshot:  Snapshot from which to create the new
+                          volume.  (optional)
+        :type snapshot:  :class:`.VolumeSnapshot`
+
+        :return: The newly created volume.
+        :rtype: :class:`StorageVolume`
+        """
+        volume = {
+            'display_name': name,
+            'display_description': name,
+            'size': size,
+            'volume_type': None,
+            'metadata': {
+                'contents': name,
+            },
+            'availability_zone': location
+        }
+
         if snapshot:
-            raise NotImplementedError(
-                "create_volume does not yet support create from snapshot")
+            volume['snapshot_id'] = snapshot.id
+
         resp = self.connection.request('/os-volumes',
                                        method='POST',
-                                       data={
-                                           'volume': {
-                                               'display_name': name,
-                                               'display_description': name,
-                                               'size': size,
-                                               'volume_type': None,
-                                               'metadata': {
-                                                   'contents': name,
-                                               },
-                                               'availability_zone': location,
-                                           }
-                                       })
+                                       data={'volume': volume})
         return self._to_volume(resp.object)
 
     def destroy_volume(self, volume):
@@ -2042,6 +2064,7 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
                 'description': api_node['displayDescription'],
                 'attachments': [att for att in api_node['attachments'] if att],
                 'state': api_node.get('status', None),
+                'snapshot_id': api_node.get('snapshotId', None),
                 'location': api_node.get('availabilityZone', None),
                 'volume_type': api_node.get('volumeType', None),
                 'metadata': api_node.get('metadata', None),
@@ -2066,8 +2089,14 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
                  'description': description,
                  'status': status}
 
+        try:
+            created_dt = parse_date(created_at)
+        except ValueError:
+            created_dt = None
+
         snapshot = VolumeSnapshot(id=data['id'], driver=self,
-                                  size=data['size'], extra=extra)
+                                  size=data['size'], extra=extra,
+                                  created=created_dt)
         return snapshot
 
     def _to_size(self, api_flavor, price=None, bandwidth=None):
