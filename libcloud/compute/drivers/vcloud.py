@@ -2660,7 +2660,6 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
             'Content-type': 'application/vnd.vmware.vcloud.networkConfigSection+xml'
         }
 
-        print ET.tostring(network_config_section, pretty_print = True)
         res = self.connection.request(
             "%s/networkConfigSection/" % vapp_id,
             data=ET.tostring(network_config_section),
