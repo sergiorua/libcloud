@@ -2604,3 +2604,55 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
 
         return firewallRules
 
+    def upload_vapp_firewall(self, vapp_name_or_id, rules):
+        if vapp_name_or_id.startswith('http'):
+            vapp_id = vapp_name_or_id
+        else:
+            vapp = self.ex_find_node(vapp_name_or_id, vdcs=vdcs)
+            if not vapp:
+                return None
+            vapp_id = vapp.id
+
+        fw_fields = ['IsEnabled',
+                     'Description',
+                     'Policy',
+                     'Protocols',
+                     'Port',
+                     'DestinationIp',
+                     'SourcePort',
+                     'SourceIp',
+                     'EnableLogging']
+
+        try:
+            network_config_section = self.connection.request("%s/networkConfigSection/" % vapp_id).object
+        except:
+            return None
+
+        # replace FirewallService with new rules
+        # NetworkConfigSection -> NetworkConfig -> Configuration -> Features -> FirewallService
+        for item in network_config_section.iter():
+            if 'FirewallService' in item.tag:
+                item.clear()
+
+                for fw_rule in rules:
+                    fr = ET.SubElement(item, "FirewallRule")
+                    for k in fw_fields:
+                        if k == 'Protocols' and not list() is fw_rule[k]:
+                            protocols = ET.SubElement(fr, k)
+                            for p in fw_rule[k]:
+                                for prot in p.split("+"):
+                                    ET.SubElement(protocols, prot).text = 'true'
+                        else:
+                            ET.SubElement(fr, k).text = fw_rule[k]
+
+        headers = {
+            'Content-type': 'application/vnd.vmware.vcloud.networkConfigSection+xml'
+        }
+
+        res = self.connection.request(
+            "%s/networkConfigSection/" % vapp_id,
+            data=ET.tostring(network_config_section),
+            method='PUT',
+            headers=headers
+        )
+        return self._wait_for_task_completion(res.object.get('href'))
