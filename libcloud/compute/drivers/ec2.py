@@ -1563,6 +1563,10 @@ RESOURCE_EXTRA_ATTRIBUTES_MAP = {
             'xpath': 'attachmentSet/item/device',
             'transform_func': str
         },
+        'snapshot_id': {
+            'xpath': 'snapshotId',
+            'transform_func': lambda v: str(v) or None
+        },
         'iops': {
             'xpath': 'iops',
             'transform_func': int
@@ -2046,7 +2050,7 @@ class BaseEC2NodeDriver(NodeDriver):
         return sizes
 
     def list_images(self, location=None, ex_image_ids=None, ex_owner=None,
-                    ex_executableby=None):
+                    ex_executableby=None, ex_filters=None):
         """
         List all images
         @inherits: :class:`NodeDriver.list_images`
@@ -2068,6 +2072,10 @@ class BaseEC2NodeDriver(NodeDriver):
         images with public launch permissions.
         Valid values: all|self|aws id
 
+        Ex_filters parameter is used to filter the list of
+        images that should be returned. Only images matchind
+        the filter will be returned.
+
         :param      ex_image_ids: List of ``NodeImage.id``
         :type       ex_image_ids: ``list`` of ``str``
 
@@ -2076,6 +2084,9 @@ class BaseEC2NodeDriver(NodeDriver):
 
         :param      ex_executableby: Executable by
         :type       ex_executableby: ``str``
+
+        :param      ex_filters: Filter by
+        :type       ex_filters: ``dict``
 
         :rtype: ``list`` of :class:`NodeImage`
         """
@@ -2091,6 +2102,9 @@ class BaseEC2NodeDriver(NodeDriver):
             for index, image_id in enumerate(ex_image_ids):
                 index += 1
                 params.update({'ImageId.%s' % (index): image_id})
+
+        if ex_filters:
+            params.update(self._build_filters(ex_filters))
 
         images = self._to_images(
             self.connection.request(self.path, params=params).object
@@ -2314,6 +2328,23 @@ class BaseEC2NodeDriver(NodeDriver):
     def create_volume(self, size, name, location=None, snapshot=None,
                       ex_volume_type='standard', ex_iops=None):
         """
+        Create a new volume.
+
+        :param size: Size of volume in gigabytes (required)
+        :type size: ``int``
+
+        :param name: Name of the volume to be created
+        :type name: ``str``
+
+        :param location: Which data center to create a volume in. If
+                               empty, undefined behavior will be selected.
+                               (optional)
+        :type location: :class:`.NodeLocation`
+
+        :param snapshot:  Snapshot from which to create the new
+                               volume.  (optional)
+        :type snapshot:  :class:`.VolumeSnapshot`
+
         :param location: Datacenter in which to create a volume in.
         :type location: :class:`.ExEC2AvailabilityZone`
 
@@ -2324,6 +2355,9 @@ class BaseEC2NodeDriver(NodeDriver):
                      that the volume supports. Only used if ex_volume_type
                      is io1.
         :type iops: ``int``
+
+        :return: The newly created volume.
+        :rtype: :class:`StorageVolume`
         """
         valid_volume_types = ['standard', 'io1', 'gp2']
 
@@ -2334,6 +2368,9 @@ class BaseEC2NodeDriver(NodeDriver):
         if ex_volume_type and ex_volume_type not in valid_volume_types:
             raise ValueError('Invalid volume type specified: %s' %
                              (ex_volume_type))
+
+        if snapshot:
+            params['SnapshotId'] = snapshot.id
 
         if location is not None:
             params['AvailabilityZone'] = location.availability_zone.name
@@ -3381,10 +3418,12 @@ class BaseEC2NodeDriver(NodeDriver):
 
     def ex_describe_tags(self, resource):
         """
-        Return a dictionary of tags for a resource (Node or StorageVolume).
+        Return a dictionary of tags for a resource (e.g. Node or
+        StorageVolume).
 
         :param  resource: resource which should be used
-        :type   resource: :class:`Node` or :class:`StorageVolume`
+        :type   resource: any resource class, such as :class:`Node,`
+                :class:`StorageVolume,` or :class:NodeImage`
 
         :return: dict Node tags
         :rtype: ``dict``
@@ -3392,8 +3431,7 @@ class BaseEC2NodeDriver(NodeDriver):
         params = {'Action': 'DescribeTags'}
 
         filters = {
-            'resource-id': resource.id,
-            'resource-type': 'instance'
+            'resource-id': resource.id
         }
 
         params.update(self._build_filters(filters))
@@ -4690,6 +4728,8 @@ class BaseEC2NodeDriver(NodeDriver):
                           namespace=NAMESPACE)
         size = findtext(element=element, xpath='volumeSize',
                         namespace=NAMESPACE)
+        created = parse_date(findtext(element=element, xpath='startTime',
+                             namespace=NAMESPACE))
 
         # Get our tags
         tags = self._get_resource_tags(element)
@@ -4707,7 +4747,7 @@ class BaseEC2NodeDriver(NodeDriver):
         extra['name'] = name
 
         return VolumeSnapshot(snapId, size=int(size),
-                              driver=self, extra=extra)
+                              driver=self, extra=extra, created=created)
 
     def _to_key_pairs(self, elems):
         key_pairs = [self._to_key_pair(elem=elem) for elem in elems]

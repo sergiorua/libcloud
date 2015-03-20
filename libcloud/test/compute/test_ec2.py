@@ -18,6 +18,7 @@ from __future__ import with_statement
 import os
 import sys
 from datetime import datetime
+from libcloud.utils.iso8601 import UTC
 
 from libcloud.utils.py3 import httplib
 
@@ -775,12 +776,14 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual('vol-v24bfh75', volumes[1].id)
         self.assertEqual(11, volumes[1].size)
         self.assertEqual('available', volumes[1].extra['state'])
+        self.assertIsNone(volumes[1].extra['snapshot_id'])
 
         self.assertEqual('vol-b6c851ec', volumes[2].id)
         self.assertEqual(8, volumes[2].size)
         self.assertEqual('in-use', volumes[2].extra['state'])
         self.assertEqual('i-d334b4b3', volumes[2].extra['instance_id'])
         self.assertEqual('/dev/sda1', volumes[2].extra['device'])
+        self.assertEqual('snap-30d37269', volumes[2].extra['snapshot_id'])
 
     def test_create_volume(self):
         location = self.driver.list_locations()[0]
@@ -824,6 +827,8 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual('Test snapshot', snap.extra['name'])
         self.assertEqual(vol.id, snap.extra['volume_id'])
         self.assertEqual('pending', snap.extra['state'])
+        # 2013-08-15T16:22:30.000Z
+        self.assertEqual(datetime(2013, 8, 15, 16, 22, 30, tzinfo=UTC), snap.created)
 
     def test_list_snapshots(self):
         snaps = self.driver.list_snapshots()
