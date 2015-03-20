@@ -2522,7 +2522,7 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
         for fw_rule in data:
             fr = ET.SubElement(fs, "FirewallRule")
             for k in fw_fields:
-                # FIXME: this is cutom hack as I store protocols into a yaml file
+                # FIXME: this is custom hack as I store protocols into a yaml file
                 #        using the format "Protocols: Tcp+Udp"
                 if k == 'Protocols' and not list() is fw_rule[k]:
                     protocols = ET.SubElement(fr, k)
@@ -2636,6 +2636,8 @@ class VCloud_5_1_NodeDriver(VCloud_1_5_NodeDriver):
 
                 for fw_rule in rules:
                     fr = ET.SubElement(item, "FirewallRule")
+                    # FIXME: this is custom hack as I store protocols into a yaml file
+                    #        using the format "Protocols: Tcp+Udp"
                     for k in fw_fields:
                         if k == 'Protocols' and not list() is fw_rule[k]:
                             protocols = ET.SubElement(fr, k)
