@@ -3,12 +3,15 @@ Provider                              list key pairs get key pair create key pai
 ===================================== ============== ============ =============== ============================= =========================== ===============
 `Abiquo`_                             no             no           no              no                            no                          no             
 `PCextreme AuroraCompute`_            yes            yes          yes             yes                           no                          yes            
+`Azure Virtual machines`_             no             no           no              no                            no                          no             
 `Bluebox Blocks`_                     no             no           no              no                            no                          no             
 `Brightbox`_                          no             no           no              no                            no                          no             
 `CloudFrames`_                        no             no           no              no                            no                          no             
 `CloudSigma (API v2.0)`_              no             no           no              no                            no                          no             
 `CloudStack`_                         yes            yes          yes             yes                           no                          yes            
-`Digital Ocean`_                      no             no           no              no                            no                          no             
+`Cloudwatt`_                          yes            yes          yes             yes                           no                          yes            
+`DigitalOcean`_                       yes            yes          yes             no                            no                          yes            
+`DimensionData`_                      no             no           no              no                            no                          no             
 `Dreamhost`_                          no             no           no              no                            no                          no             
 `Amazon EC2`_                         yes            yes          yes             yes                           no                          yes            
 `Amazon EC2 (ap-northeast-1)`_        yes            yes          yes             yes                           no                          yes            
@@ -32,7 +35,7 @@ Provider                              list key pairs get key pair create key pai
 `ElasticHosts (sjc-c)`_               no             no           no              no                            no                          no             
 `Eucalyptus`_                         yes            yes          yes             yes                           no                          yes            
 `Exoscale`_                           yes            yes          yes             yes                           no                          yes            
-`Gandi`_                              no             no           no              no                            no                          no             
+`Gandi`_                              yes            yes          no              yes                           no                          yes            
 `Google Compute Engine`_              no             no           no              no                            no                          no             
 `GoGrid`_                             no             no           no              no                            no                          no             
 `HostVirtual`_                        no             no           no              no                            no                          no             
@@ -52,6 +55,7 @@ Provider                              list key pairs get key pair create key pai
 `Opsource`_                           no             no           no              no                            no                          no             
 `Outscale INC`_                       yes            yes          yes             yes                           no                          yes            
 `Outscale SAS`_                       yes            yes          yes             yes                           no                          yes            
+`Packet`_                             yes            no           yes             no                            no                          yes            
 `ProfitBricks`_                       no             no           no              no                            no                          no             
 `Rackspace Cloud (Next Gen)`_         yes            yes          yes             yes                           no                          yes            
 `Rackspace Cloud (First Gen)`_        no             no           no              no                            no                          no             
@@ -65,17 +69,20 @@ Provider                              list key pairs get key pair create key pai
 `Voxel VoxCLOUD`_                     no             no           no              no                            no                          no             
 `vps.net`_                            no             no           no              no                            no                          no             
 `VMware vSphere`_                     no             no           no              no                            no                          no             
-`Vultr`_                              no             no           no              no                            no                          no             
+`Vultr`_                              yes            no           no              no                            no                          no             
 ===================================== ============== ============ =============== ============================= =========================== ===============
 
 .. _`Abiquo`: http://www.abiquo.com/
 .. _`PCextreme AuroraCompute`: https://www.pcextreme.nl/aurora/
+.. _`Azure Virtual machines`: http://azure.microsoft.com/en-us/services/virtual-machines/
 .. _`Bluebox Blocks`: http://bluebox.net
 .. _`Brightbox`: http://www.brightbox.co.uk/
 .. _`CloudFrames`: http://www.cloudframes.net/
 .. _`CloudSigma (API v2.0)`: http://www.cloudsigma.com/
 .. _`CloudStack`: http://cloudstack.org/
-.. _`Digital Ocean`: https://www.digitalocean.com
+.. _`Cloudwatt`: https://www.cloudwatt.com/
+.. _`DigitalOcean`: https://www.digitalocean.com
+.. _`DimensionData`: http://www.dimensiondata.com/
 .. _`Dreamhost`: http://dreamhost.com/
 .. _`Amazon EC2`: http://aws.amazon.com/ec2/
 .. _`Amazon EC2 (ap-northeast-1)`: http://aws.amazon.com/ec2/
@@ -102,7 +109,7 @@ Provider                              list key pairs get key pair create key pai
 .. _`Gandi`: http://www.gandi.net/
 .. _`Google Compute Engine`: https://cloud.google.com/
 .. _`GoGrid`: http://www.gogrid.com/
-.. _`HostVirtual`: http://www.vr.org
+.. _`HostVirtual`: http://www.hostvirtual.com
 .. _`HP Public Cloud (Helion)`: http://www.hpcloud.com/
 .. _`IBM SmartCloud Enterprise`: http://ibm.com/services/us/en/cloud-enterprise/
 .. _`Ikoula`: http://express.ikoula.co.uk/cloudstack
@@ -119,6 +126,7 @@ Provider                              list key pairs get key pair create key pai
 .. _`Opsource`: http://www.opsource.net/
 .. _`Outscale INC`: http://www.outscale.com
 .. _`Outscale SAS`: http://www.outscale.com
+.. _`Packet`: http://www.packet.net/
 .. _`ProfitBricks`: http://www.profitbricks.com
 .. _`Rackspace Cloud (Next Gen)`: http://www.rackspace.com
 .. _`Rackspace Cloud (First Gen)`: http://www.rackspace.com

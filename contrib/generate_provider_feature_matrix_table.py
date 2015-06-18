@@ -217,7 +217,6 @@ def generate_providers_table(api):
         # Hack for providers which expose multiple classes and support multiple
         # API versions
         # TODO: Make entry per version
-
         if name.lower() == 'cloudsigma':
             from libcloud.compute.drivers.cloudsigma import \
                 CloudSigma_2_0_NodeDriver
@@ -226,6 +225,10 @@ def generate_providers_table(api):
             from libcloud.compute.drivers.opennebula import \
                 OpenNebula_3_8_NodeDriver
             cls = OpenNebula_3_8_NodeDriver
+        elif name.lower() == 'digital_ocean' and api.startswith('compute'):
+            from libcloud.compute.drivers.digitalocean import \
+                DigitalOcean_v2_NodeDriver
+            cls = DigitalOcean_v2_NodeDriver
 
         if name.lower() in IGNORED_PROVIDERS:
             continue
